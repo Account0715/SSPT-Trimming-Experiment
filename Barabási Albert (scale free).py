@@ -1,0 +1,111 @@
+import random
+import networkx as nx
+import heapq
+from tqdm import tqdm
+
+def generate_scale_free_directed_graph(n, m, seed=None):
+    if seed is not None:
+        random.seed(seed)
+
+    G = nx.barabasi_albert_graph(n, m, seed=seed)
+
+    r = random.randint(0, n - 1)
+    return G, r
+
+
+def is_graph_connected(G, r):
+    visited = set()
+    stack = [r]
+
+    while stack:
+        node = stack.pop()
+        if node in visited:
+            continue
+        visited.add(node)
+
+        # Visit successors of current node
+        for neighbor in G.neighbors(node):
+            if neighbor not in visited:
+                stack.append(neighbor)
+
+    return len(visited) == len(G.nodes())
+
+
+def dijkstra_min_depth(G, source):
+    dist = {v: float('inf') for v in G.nodes}
+    depth = {v: float('inf') for v in G.nodes}
+    parent = {v: None for v in G.nodes}
+
+    dist[source] = 0
+    depth[source] = 0
+
+    heap = [(0, 0, source)]  # (distance, depth, node)
+
+    while heap:
+        d_u, h_u, u = heapq.heappop(heap)
+
+        for v in G.neighbors(u):
+            w = G[u][v].get('weight', 1)  # default weight is 1 if not given
+            d_v = d_u + w
+            h_v = h_u + 1
+
+            if (d_v < dist[v]) or (d_v == dist[v] and h_v < depth[v]):
+                dist[v] = d_v
+                depth[v] = h_v
+                parent[v] = u
+                heapq.heappush(heap, (d_v, h_v, v))
+
+    return dist, depth, parent
+def sample_terminals(n, q, seed=None):
+    if seed is not None:
+        random.seed(seed)
+
+    return [v for v in range(n) if random.random() < q]
+
+def count_vertices_not_on_paths(G, parent, sampled_terminals, root):
+    vertices_on_paths = set()
+
+    for t in sampled_terminals:
+        current = t
+        while current is not None:
+            vertices_on_paths.add(current)
+            current = parent.get(current)
+            if current == root:
+                vertices_on_paths.add(root)
+                break
+
+    all_nodes = set(G.nodes())
+    not_on_paths = all_nodes - vertices_on_paths
+    return len(not_on_paths)
+
+def scheme_scale_free(n, m, q, times):
+    removed = []
+    for _ in tqdm(range(times)):
+        g, r = generate_scale_free_directed_graph(n, m)
+        while not is_graph_connected(g, r):
+            g, r = generate_scale_free_directed_graph(n, m)
+        dist, depth, parent = dijkstra_min_depth(g, r)
+        t = sample_terminals(len(g), q)
+        ratio = count_vertices_not_on_paths(g, parent, t, r) / len(g)
+        removed.append(ratio)
+    return removed
+
+
+def calc_avg_and_variance(removed):
+    if not removed:
+        return None, None
+    avg = sum(removed) / len(removed)
+    variance = sum((x - avg) ** 2 for x in removed) / len(removed)
+    return avg, variance
+
+m_values = [6, 10]
+q_values = [0.2, 0.4, 0.6]
+results = []
+
+for m in m_values:
+    for q in q_values:
+        print(f"Running for m={m}, q={q}")
+        removed = scheme_scale_free(n=1000, m=m, q=q, times=100)
+        avg, var = calc_avg_and_variance(removed)
+        results.append((m, q, avg, var))
+        print(f"→ Avg removed ratio = {avg:.3f}, Var = {var:.5f}")
